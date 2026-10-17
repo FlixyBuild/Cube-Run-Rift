@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Enlarge the selected portal-and-cube artwork while leaving dark edge breathing room for adaptive masks. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="10%" android:insetTop="10%"
+    android:insetRight="10%" android:insetBottom="10%">
+    <bitmap android:src="@drawable/portal_pop" android:gravity="fill" android:filter="true"/>
+</inset>

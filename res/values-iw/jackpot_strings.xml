@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    <string name="cd_jackpot_win">פרס גדול. %1$s מטבעות.</string>
+    <string name="cd_show_unknown_ability">הצגת יכולת לא ידועה</string>
+    <string name="cd_hide_unknown_ability">הסתרת יכולת לא ידועה</string>
+    <string name="cd_void_stirs">הריק מתעורר</string>
+    <string name="cd_challenge_complete">האתגר הושלם</string>
+    <string name="achievement_runner">ריצה טובה</string>
+    <string name="achievement_coins">מטבעות לכל החיים</string>
+    <string name="achievement_cubes">קוביות שנפתחו</string>
+    <string name="achievement_powerups">אוסף הכוחות</string>
+    <string name="achievement_boxes">מחפש ההפתעות</string>
+    <string name="achievement_bubbles">בועה גדולה</string>
+    <string name="achievement_bounces">מקפץ הקירות</string>
+    <string name="achievement_center">נשארים במרכז</string>
+    
+    <string name="achievement_cookie">אלוף ההקשות</string>
+    <string name="medal_bronze">ארד</string>
+    <string name="medal_silver">כסף</string>
+    <string name="medal_diamond">יהלום</string>
+    <string name="cd_offer_coins">הצעת %1$s מטבעות</string>
+    <string name="cd_buy_coins">קנייה תמורת %1$s מטבעות</string>
+    <string name="wardrobe_buy">קנייה&#x2009;</string>
+    <string name="shop_reset_progress">איפוס ההתקדמות</string>
+    <string name="shop_reset_question">לאפס את ההתקדמות?</string>
+    <string name="shop_reset_explanation">למחוק את כל המטבעות, השדרוגים, העיצובים, ההישגים והתוצאות?\nאי אפשר לבטל את הפעולה.</string>
+    <string name="shop_cancel">ביטול</string>
+    <string name="shop_reset">איפוס</string>
+    <string name="shop_reset_failed">האיפוס לא נשמר. נסו שוב.</string>
+    <string name="void_line_1">השדרוג הזה לא עשה כלום.</string>
+    <string name="void_line_3">מטבעות שהושקעו היטב :)</string>
+    <string name="void_line_4">הכול זוהר.</string>
+    <string name="void_line_8">משמעות החיים תיחשף בפעם הבאה.</string>
+    <string name="void_line_9">יש לי בגלריה תמונה שצילמתי בחלום.</string>
+    <string name="void_line_10">תציצו במלתחה 👀</string>
+    <string name="void_line_12">הבקבוק חצי מלא!!!!</string>
+    <string name="void_line_14">(אתם) תהיו מאושרים.</string>
+    <string name="void_line_15">הנה הכדור שלכם, והחדר שלכם.</string>
+    <string name="void_line_16">אל תחממו מנורת לבה על הכיריים.</string>
+    <string name="void_line_17">יהיו עקבות.</string>
+    <string name="void_line_18">כמה ממדים יש?</string>
+    <string name="void_line_20">תציצו שוב במלתחה :)</string>
+    <string name="void_line_21">אין יותר שדרוגים</string>
+    <string name="void_line_22">תסמכו עליי, אין יותר שדרוגים</string>
+    <string name="void_line_23">מיסים?</string>
+    <string name="void_line_24">מיסים.</string>
+    <string name="void_line_28">תאמינו בעצמכם</string>
+    <string name="void_line_29">זה לא נגמר עד שזה נגמר.</string>
+    <string name="void_line_30">בועה?</string>
+</resources>

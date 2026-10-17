@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    <string name="cd_jackpot_win">Jackpot. %1$s Münzen.</string>
+    <string name="cd_show_unknown_ability">Unbekannte Fähigkeit anzeigen</string>
+    <string name="cd_hide_unknown_ability">Unbekannte Fähigkeit ausblenden</string>
+    <string name="cd_void_stirs">Die Leere regt sich</string>
+    <string name="cd_challenge_complete">Herausforderung abgeschlossen</string>
+    <string name="achievement_runner">Guter Läufer</string>
+    <string name="achievement_coins">Münzen fürs Leben</string>
+    <string name="achievement_cubes">Freigeschaltete Würfel</string>
+    <string name="achievement_powerups">Power-up-Sammler</string>
+    <string name="achievement_boxes">Boxenjäger</string>
+    <string name="achievement_bubbles">Riesige Blase</string>
+    <string name="achievement_bounces">Wandspringer</string>
+    <string name="achievement_center">In der Mitte bleiben</string>
+    
+    <string name="achievement_cookie">Klickkönig</string>
+    <string name="medal_bronze">Bronze</string>
+    <string name="medal_silver">Silber</string>
+    <string name="medal_diamond">Diamant</string>
+    <string name="cd_offer_coins">%1$s Münzen anbieten</string>
+    <string name="cd_buy_coins">Für %1$s Münzen kaufen</string>
+    <string name="wardrobe_buy">KAUFEN&#x2009;</string>
+    <string name="shop_reset_progress">FORTSCHRITT LÖSCHEN</string>
+    <string name="shop_reset_question">FORTSCHRITT LÖSCHEN?</string>
+    <string name="shop_reset_explanation">Alle Münzen, Upgrades, Designs, Erfolge und Punktestände löschen?\nDas lässt sich nicht rückgängig machen.</string>
+    <string name="shop_cancel">ABBRECHEN</string>
+    <string name="shop_reset">LÖSCHEN</string>
+    <string name="shop_reset_failed">Der Fortschritt konnte nicht gelöscht werden. Bitte versuche es erneut.</string>
+    <string name="void_line_1">Dieses Upgrade hat nichts gebracht.</string>
+    <string name="void_line_3">Gut angelegte Münzen :)</string>
+    <string name="void_line_4">Alles leuchtet.</string>
+    <string name="void_line_8">Der Sinn des Lebens wird beim nächsten Mal enthüllt.</string>
+    <string name="void_line_9">Ich habe ein Foto in meiner Galerie, das ich in einem Traum gemacht habe.</string>
+    <string name="void_line_10">schau mal in deine Garderobe 👀</string>
+    <string name="void_line_12">DIE FLASCHE IST HALB VOLL!!!!</string>
+    <string name="void_line_14">(Du) wirst glücklich sein.</string>
+    <string name="void_line_15">Hier ist deine Pille, und dein Zimmer.</string>
+    <string name="void_line_16">Erhitze keine Lavalampe auf dem Herd.</string>
+    <string name="void_line_17">Es wird Spuren geben.</string>
+    <string name="void_line_18">Wie viele Dimensionen gibt es?</string>
+    <string name="void_line_20">Schau nochmal in deine Garderobe :)</string>
+    <string name="void_line_21">keine upgrades mehr</string>
+    <string name="void_line_22">vertrau mir, keine upgrades mehr</string>
+    <string name="void_line_23">Steuern?</string>
+    <string name="void_line_24">Steuern.</string>
+    <string name="void_line_28">GLAUB AN DICH</string>
+    <string name="void_line_29">es ist erst vorbei, wenn\'s vorbei ist.</string>
+    <string name="void_line_30">Blase?</string>
+</resources>

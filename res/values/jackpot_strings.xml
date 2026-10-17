@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    <string name="cd_jackpot_win">Jackpot. %1$s coins.</string>
+    <string name="cd_show_unknown_ability">Show unknown ability</string>
+    <string name="cd_hide_unknown_ability">Hide unknown ability</string>
+    <string name="cd_void_stirs">The void stirs</string>
+    <string name="cd_challenge_complete">Challenge complete</string>
+    <string name="achievement_runner">Good Runner</string>
+    <string name="achievement_coins">Lifetime Coins</string>
+    <string name="achievement_cubes">Unlocked Cubes</string>
+    <string name="achievement_powerups">Power Collector</string>
+    <string name="achievement_boxes">Mystery Seeker</string>
+    <string name="achievement_bubbles">Big Bubble</string>
+    <string name="achievement_bounces">Bouncer</string>
+    <string name="achievement_center">Stay Centered</string>
+    
+    <string name="achievement_cookie">Cookie Clicker</string>
+    <string name="medal_bronze">Bronze</string>
+    <string name="medal_silver">Silver</string>
+    <string name="medal_diamond">Diamond</string>
+    <string name="cd_offer_coins">Offer %1$s coins</string>
+    <string name="cd_buy_coins">Buy for %1$s coins</string>
+    <string name="wardrobe_buy">BUY&#x2009;</string>
+    <string name="shop_reset_progress">RESET PROGRESS</string>
+    <string name="shop_reset_question">RESET PROGRESS?</string>
+    <string name="shop_reset_explanation">Delete all coins, upgrades, cosmetics, achievements and scores?\nThis cannot be undone.</string>
+    <string name="shop_cancel">CANCEL</string>
+    <string name="shop_reset">RESET</string>
+    <string name="shop_reset_failed">Couldn\'t save the reset. Please try again.</string>
+    <string name="void_line_1">This upgrade did nothing.</string>
+    <string name="void_line_3">Coins well spent :)</string>
+    <string name="void_line_4">Everything glows.</string>
+    <string name="void_line_8">The meaning of life will be revealed next time.</string>
+    <string name="void_line_9">I have a picture in my gallery that I took in a dream.</string>
+    <string name="void_line_10">check your wardrobe 👀</string>
+    <string name="void_line_12">THE BOTTLE IS HALF FULL!!!!</string>
+    <string name="void_line_14">(You) will be happy.</string>
+    <string name="void_line_15">Here is your pill, and your room.</string>
+    <string name="void_line_16">Do not heat a lava lamp on a stove.</string>
+    <string name="void_line_17">There will be traces.</string>
+    <string name="void_line_18">How many dimensions are there?</string>
+    <string name="void_line_20">Check your wardrobe again :)</string>
+    <string name="void_line_21">no more upgrades</string>
+    <string name="void_line_22">trust me, no more upgrades</string>
+    <string name="void_line_23">Taxes?</string>
+    <string name="void_line_24">Taxes.</string>
+    <string name="void_line_28">BELIEVE IN YOURSELF</string>
+    <string name="void_line_29">it\'s not over \'till it\'s over.</string>
+    <string name="void_line_30">Bubble?</string>
+</resources>
