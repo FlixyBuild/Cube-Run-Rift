@@ -1,0 +1,96 @@
+package cube.run.ui
+
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.view.Gravity
+import android.view.View
+import android.widget.LinearLayout
+import cube.run.R
+import cube.run.core.SoundFx
+import cube.run.data.Settings
+import cube.run.data.Progress
+
+/**
+ * The pause: a compact candy card over the frozen, dimmed run (the HUD
+ * behind it still shows the score and the haul — nothing is repeated
+ * here). One big RESUME, RESTART / MENU, and the sound and vibration
+ * toggles. Only the resume button or back chip resumes.
+ */
+@SuppressLint("SetTextI18n", "ViewConstructor")
+class PauseSheet(
+    activity: Activity,
+    kit: UiKit,
+    onResume: () -> Unit,
+    onRestart: () -> Unit,
+    onMenu: () -> Unit,
+) : Sheet(activity, kit, onResume) {
+
+    private lateinit var header: View
+    private lateinit var resume: View
+    private lateinit var restart: View
+    private lateinit var menu: View
+    private lateinit var pair: LinearLayout
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        // Sound and haptics remain in the main menu. In a short split pane they
+        // push the essential resume/restart/menu controls below the divider.
+        val height = MeasureSpec.getSize(heightMeasureSpec)
+        val short = CompactLayout.uses(this, height)
+        for (i in 3..4) card.getChildAt(i).visibility = if (short) View.GONE else View.VISIBLE
+        // A third of a phone: RESUME alone does what the back chip does, and
+        // RESTART / MENU share a row.
+        val tiny = height < dp(320f)
+        header.visibility = if (tiny) View.GONE else View.VISIBLE
+        (resume.layoutParams as LinearLayout.LayoutParams).topMargin = if (tiny) 0 else dp(20f)
+        pair.orientation = if (tiny) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        for ((i, button) in listOf(restart, menu).withIndex()) (button.layoutParams as LinearLayout.LayoutParams).apply {
+            width = if (tiny) 0 else LinearLayout.LayoutParams.MATCH_PARENT
+            weight = if (tiny) 1f else 0f
+            topMargin = if (tiny || i == 0) 0 else dp(12f)
+            marginStart = if (tiny && i == 1) dp(10f) else 0
+            resolveLayoutDirection(layoutDirection)
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    init {
+        header = LinearLayout(activity).apply { // header: back chip + title
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            clipChildren = false; clipToPadding = false
+            addView(kit.chip(R.drawable.ic_back, Theme.CARD_ALT, Theme.INK, activity.getString(R.string.cd_back)) { dismiss() }, LinearLayout.LayoutParams(dp(42f), dp(46f)))
+            addView(kit.text(kit.ctx.getString(R.string.text_paused), 24f, Theme.INK, 700, Gravity.START).apply { letterSpacing = kit.tracking(0.06f) },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(12f) })
+        }
+        card.addView(header, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        resume = kit.button(kit.ctx.getString(R.string.text_resume), Theme.PLAY, UiKit.Size.BIG) { dismiss() }
+        card.addView(resume, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(20f) })
+        restart = kit.button(kit.ctx.getString(R.string.text_restart), Theme.SKY, UiKit.Size.BIG) { onRestart() }
+        menu = kit.button(kit.ctx.getString(R.string.text_menu), Theme.LAVENDER, UiKit.Size.BIG) { onMenu() }
+        pair = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            clipChildren = false; clipToPadding = false
+            addView(restart, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+            addView(menu, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12f) })
+        }
+        card.addView(pair, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12f) })
+
+        card.addView(divider(), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(2f)).apply { topMargin = dp(18f); marginStart = dp(20f); marginEnd = dp(20f) })
+        card.addView(LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            clipChildren = false; clipToPadding = false
+            val size = dp(46f)
+            addView(kit.toggle(R.drawable.ic_sound_on, R.drawable.ic_sound_off, activity.getString(R.string.cd_sound), Theme.SKY,
+                { Settings.soundEnabled }, { enabled ->
+                    if (Settings.soundEnabled != enabled) {
+                        Settings.setSoundEnabled(enabled)
+                        SoundFx.refreshMusicSettings()
+                        Progress.recordMuteToggle()
+                    }
+                }), LinearLayout.LayoutParams(size, size + dp(4f)))
+            addView(kit.toggle(R.drawable.ic_haptic_on, R.drawable.ic_haptic_off, activity.getString(R.string.cd_haptics), Theme.SKY,
+                { Settings.hapticsEnabled }, { Settings.setHapticsEnabled(it) }), LinearLayout.LayoutParams(size, size + dp(4f)).apply { marginStart = dp(14f) })
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(16f) })
+    }
+}

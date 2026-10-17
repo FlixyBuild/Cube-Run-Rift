@@ -1,0 +1,648 @@
+package cube.run.ui
+
+import cube.run.R
+
+import android.animation.ValueAnimator
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.graphics.drawable.Drawable
+import android.text.Layout
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextPaint
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.ScrollView
+import cube.run.core.Haptics
+import cube.run.core.SoundFx
+import cube.run.core.Stage
+import cube.run.data.Progress
+import cube.run.data.Wardrobe
+import cube.run.ui.Anim.move
+
+/**
+ * The run-over sequence, full screen, one focused page at a time on the
+ * engine's stage (your cube floating in a world-tinted sky):
+ *  1. the results — your cube up top with a sunburst spinning behind it (in
+ *     the 3D stage, so the cube stays in front), a huge score counting up,
+ *     stars that slam in and coins. One tap skips the count, the next moves on;
+ *  2. the mystery boxes (only if any were collected) — the game renders the
+ *     box in 3D ([Stage.BOX]); a tap opens one, the reward pops up as a
+ *     card, the next tap brings the next box (already opening) or, after
+ *     the last, moves on;
+ *  3. and then straight back to the main menu (everything else lives there).
+ * Leaving hands off immediately to the activity crossfade, keeping this screen visible underneath.
+ */
+@SuppressLint("SetTextI18n", "ViewConstructor")
+class RunOverFlow(
+    private val activity: Activity,
+    private val kit: UiKit,
+    private val score: Int,
+    private val best: Int,
+    private val isNewBest: Boolean,
+    private val coins: Int,
+    private val boxes: Int,
+    private val world: String,
+    private val bonusVisited: List<Int>,
+    private val onRestart: () -> Unit,
+    private val onMenu: () -> Unit,
+    private val shards: IntArray = IntArray(3),
+    private val boxesOnly: Boolean = false,
+) : FrameLayout(activity) {
+
+    private fun dp(v: Float) = kit.dp(v)
+    private fun dpf(v: Float) = kit.dpf(v)
+    private var page: View? = null
+    private val anims = ArrayList<ValueAnimator>()
+    private val pending = ArrayList<Runnable>()
+    private var rewardBeat: ValueAnimator? = null
+    private var leaving = false
+    private var compactLayout = false
+    private var safeInsets = intArrayOf(0, 0, 0, 0)
+    private val uncovered = Uncovered(this)
+    private var adaptLayout: ((Boolean) -> Unit)? = null
+    private var hintPulse: ValueAnimator? = null
+    private var resultsCard: View? = null
+    private val windowPosition = IntArray(2)
+
+
+    fun confirm() { if (!leaving) page?.performClick() }
+
+    private fun later(ms: Long, action: () -> Unit) {
+        val task = object : Runnable {
+            override fun run() { pending.remove(this); action() }
+        }
+        pending.add(task)
+        postDelayed(task, ms)
+    }
+
+    private fun stopEffects() {
+        boxReadyTask?.let { removeCallbacks(it) }; boxReadyTask = null
+        pending.forEach { removeCallbacks(it) }
+        pending.clear()
+        scoreAnim?.cancel(); coinAnim?.cancel()
+        rewardBeat?.cancel(); rewardBeat = null
+        anims.forEach { it.cancel() }
+        anims.clear()
+        Anim.cancelTree(this)
+    }
+
+    // ------------------------------------------------------------- transitions
+
+    /** Slide the old page out to the left, the new one in from the right. */
+    private fun swap(next: View) {
+        val direction = if (resources.configuration.layoutDirection == View.LAYOUT_DIRECTION_RTL) -1 else 1
+        page?.let { old ->
+            old.move().alpha(0f).translationX(-dpf(60f) * direction).setDuration(160).withEndAction { removeView(old) }.start()
+        }
+        page = next
+        addView(next, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        Anim.slideIn(next, 0, dpf(70f) * direction, 260)
+    }
+
+    /** Start the destination immediately; the window transition keeps these results visible until it is ready. */
+    private fun leave(action: () -> Unit) {
+        if (leaving) return
+        leaving = true
+        stopEffects()
+        Haptics.click()
+        action()
+    }
+
+    /** A soft hint that breathes at the bottom of a page (hide it with visibility, not alpha). */
+    private fun tapHint(text: String): TextView = kit.stageText(text, 14f, Theme.alpha(Theme.WHITE, 220), weight = 600, stroke = 2f).apply {
+        letterSpacing = kit.tracking(0.14f)
+        hintPulse = Anim.breathe(this, 0.5f, 1f, 700).also { anims.add(it) }
+    }
+
+    /** One stat cell inside the results card: icon (optional), value, label. */
+    private fun cell(icon: Drawable?, value: CharSequence, label: String, color: Int = Theme.WHITE): LinearLayout = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        clipChildren = false; clipToPadding = false
+        setPadding(dp(6f), dp(10f), dp(6f), dp(10f))
+        if (icon != null) addView(ImageView(activity).apply { setImageDrawable(icon) }, LinearLayout.LayoutParams(dp(26f), dp(26f)).apply { bottomMargin = dp(4f) })
+        addView(kit.stageText(value, 22f, color, stroke = 2.5f).apply { maxLines = 1 })
+        addView(kit.text(label.uppercase(kit.ctx.resources.configuration.locales[0]), 10f, Theme.alpha(Theme.WHITE, 200), 700).apply { letterSpacing = kit.tracking(0.1f); maxLines = 1 })
+    }
+
+    /** The glass the results sit on. */
+    private fun glass(): android.graphics.drawable.Drawable = android.graphics.drawable.GradientDrawable().apply {
+        cornerRadius = dpf(26f); setColor(Theme.alpha(Theme.WHITE, 34)); setStroke(dp(1.5f), Theme.alpha(Theme.WHITE, 80))
+    }
+
+    // ------------------------------------------------------------- 1. results
+
+    private var counting = true
+    private var scoreAnim: ValueAnimator? = null
+    private var coinAnim: ValueAnimator? = null
+    private lateinit var scoreText: TextView
+    private lateinit var coinText: TextView
+    private lateinit var stars: LinearLayout
+    private var record: TextView? = null
+
+    /** Stars out of five, by score — the rating, no words needed. */
+    private fun starCount(): Int = when {
+        score >= 300 -> 5
+        score >= 180 -> 4
+        score >= 100 -> 3
+        score >= 40 -> 2
+        else -> 1
+    }
+
+    /** The sunburst's hue by rating (yellow for a record). */
+    private fun rayHue(): Float = if (isNewBest) 48f else when (starCount()) { 5 -> 330f; 4 -> 265f; 3 -> 200f; 2 -> 160f; else -> 28f }
+
+    private fun showResults() {
+        Stage.resultHue = rayHue()
+        Stage.resultRecord = isNewBest
+        Stage.focusFraction = Float.NaN; Stage.focusSpan = 0f // short panes set it once the column is laid out
+        Stage.mode = Stage.RESULT // the engine poses your cube up top, the sunburst behind it
+        val host = FrameLayout(activity).apply {
+            isClickable = true
+            clipChildren = false; clipToPadding = false
+            setOnClickListener { if (counting) finishCount() else next() }
+        }
+        if (isNewBest) host.addView(CelebrationView(activity, focusY = 0.17f, rays = false, count = 160), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+        // the column: (NEW RECORD!) the score, then ONE card with the stars and the stats
+        val column = object : LinearLayout(activity) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                // Measure the complete result, then fit it as a unit; never squeeze away the coin total.
+                super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
+            }
+        }.apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            clipChildren = false; clipToPadding = false
+        }
+        if (isNewBest) { // the one line of words worth having
+            val r = kit.stageText(kit.ctx.getString(R.string.text_new_record), 30f, Theme.YELLOW, stroke = 4.5f).apply { letterSpacing = kit.tracking(0.06f); alpha = 0f }
+            record = r
+            column.addView(r)
+        }
+        scoreText = kit.stageText("0", 104f, stroke = 11f)
+        column.addView(scoreText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = -dp(14f) })
+        scoreAnim = Anim.countUp(scoreText, score, 1300)
+
+        val card = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            clipChildren = false; clipToPadding = false
+            background = glass()
+            setPadding(dp(16f), dp(14f), dp(16f), dp(10f))
+        }
+        stars = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            clipChildren = false; clipToPadding = false
+            val n = starCount()
+            for (i in 0 until 5) {
+                addView(ImageView(activity).apply { setImageDrawable(StarIcon(Theme.YELLOW, i < n)); alpha = 0f },
+                    LinearLayout.LayoutParams(dp(if (i == 2) 44f else 36f), dp(if (i == 2) 44f else 36f)).apply { marginStart = dp(3f); marginEnd = dp(3f); gravity = Gravity.CENTER_VERTICAL })
+            }
+        }
+        card.addView(stars, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(48f)))
+        val divider = View(activity).apply { background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dpf(2f); setColor(Theme.alpha(Theme.WHITE, 70)) } }
+        card.addView(divider,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(2f)).apply { topMargin = dp(10f); marginStart = dp(10f); marginEnd = dp(10f) })
+        lateinit var coinRow: LinearLayout
+        val stats = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            clipChildren = false; clipToPadding = false
+            val coinCell = cell(CoinIcon(), "+0", kit.ctx.getString(R.string.text_coins), Theme.YELLOW)
+            coinText = coinCell.getChildAt(1) as TextView
+            coinRow = coinCell
+            addView(coinCell, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        card.addView(stats, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4f) })
+        if (shards.any { it > 0 }) {
+            val collected = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+                for (kind in cube.run.data.Shards.all) {
+                    val count = shards.getOrElse(kind.id) { 0 }
+                    if (count > 0) addView(kit.iconPill(ShardIcon(Theme.hsv(kind.hue, .6f, 1f)), "+$count", Theme.WHITE, 16f,
+                        fill = Theme.alpha(Theme.WHITE, 25)).apply { contentDescription = kit.ctx.getString(R.string.text_shards_collected, count, kit.ctx.gameText(kind.name)) },
+                        LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(5f); marginEnd = dp(5f) })
+                }
+            }
+            card.addView(collected, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8f) })
+        }
+        resultsCard = card
+        column.addView(card, LinearLayout.LayoutParams(dp(300f), LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12f) })
+        later(700) { if (counting) coinAnim = Anim.countUp(coinText, coins, 900) { "+$it" } }
+        later(1700) { counting = false }
+        later(1350) { if (counting) slamStamp() }
+
+        host.addView(column, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.TOP; topMargin = dp(200f) // the stage frames the cube at 156 dp
+        })
+        fun fitResults() {
+            if (host.height <= 0 || column.height <= 0) return
+            // Full height: the stage frames the cube at 156 dp and the column starts below it.
+            // Short panes: the column sits on the tap hint and the cube takes the room above it.
+            val bottom = dp(if (compactLayout) 44f else 86f)
+            val natural = column.height
+            var top = dp(200f)
+            if (compactLayout) top = (host.height - bottom - natural).coerceAtLeast(dp(104f))
+            val params = column.layoutParams as LayoutParams
+            if (params.topMargin != top) {
+                params.topMargin = top
+                // A request made while this layout pass runs is dropped: move the column on the next frame.
+                column.post { column.layoutParams = params }
+            }
+            val available = (host.height - top - bottom).coerceAtLeast(1)
+            val scale = minOf(1f, available.toFloat() / natural)
+            column.pivotX = column.width / 2f; column.pivotY = 0f
+            column.scaleX = scale; column.scaleY = scale
+            if (compactLayout && Stage.mode == Stage.RESULT) {
+                val at = windowPosition
+                host.getLocationInWindow(at)
+                if (host.rootView.height > 0) Stage.focusFraction = (at[1] + top / 2f) / host.rootView.height
+            }
+        }
+        host.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitResults() }
+        column.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> fitResults() }
+        val hint = tapHint(if (boxes > 0) kit.ctx.getString(R.string.text_tap_to_continue) else kit.ctx.getString(R.string.text_tap_for_the_menu))
+        host.addView(hint, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; bottomMargin = dp(32f)
+        })
+        var compactBefore = false
+        adaptLayout = { compact ->
+            if (compactBefore != compact) {
+                compactBefore = compact
+                // The same views, only smaller: counting and the pops keep running across a resize.
+                scoreText.textSize = if (compact) 64f else 104f
+                record?.textSize = if (compact) 22f else 30f
+                (scoreText.layoutParams as LinearLayout.LayoutParams).topMargin = -dp(if (compact) 8f else 14f)
+                for (i in 0 until stars.childCount) (stars.getChildAt(i).layoutParams as LinearLayout.LayoutParams).apply {
+                    width = dp(if (i == 2) (if (compact) 34f else 44f) else if (compact) 28f else 36f); height = width
+                }
+                stars.layoutParams.height = dp(if (compact) 36f else 48f)
+                divider.visibility = if (compact) GONE else VISIBLE
+                coinRow.orientation = if (compact) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+                coinRow.setPadding(dp(6f), dp(if (compact) 2f else 10f), dp(6f), dp(if (compact) 2f else 10f))
+                (coinRow.getChildAt(0).layoutParams as LinearLayout.LayoutParams).apply {
+                    bottomMargin = if (compact) 0 else dp(4f); marginEnd = if (compact) dp(6f) else 0
+                    resolveLayoutDirection(coinRow.layoutDirection)
+                }
+                (coinRow.getChildAt(1).layoutParams as LinearLayout.LayoutParams).width = if (compact) -2 else -1
+                (coinRow.getChildAt(2).layoutParams as LinearLayout.LayoutParams).apply {
+                    width = if (compact) -2 else -1
+                    marginStart = if (compact) dp(6f) else 0
+                    resolveLayoutDirection(coinRow.layoutDirection)
+                }
+                card.setPadding(dp(16f), dp(if (compact) 8f else 14f), dp(16f), dp(if (compact) 6f else 10f))
+                (card.layoutParams as LinearLayout.LayoutParams).topMargin = dp(if (compact) 4f else 12f)
+                (hint.layoutParams as LayoutParams).bottomMargin = dp(if (compact) 12f else 32f)
+                for (i in 0 until host.childCount) {
+                    val child = host.getChildAt(i)
+                    if (child is CelebrationView) child.visibility = if (compact) GONE else VISIBLE
+                }
+                if (!compact) Stage.focusFraction = Float.NaN
+            }
+        }
+        swap(host)
+        record?.let { r -> Anim.popIn(r, 100, 0.3f, 480) { anims.add(Anim.heartbeat(r, 1.05f, 900)) } }
+        Anim.popIn(scoreText, 160, 0.3f, 460)
+        Anim.riseIn(card, 420, dpf(30f))
+    }
+
+    private var stamped = false
+
+    /** The stars slam in one by one, each with a thump, the lit ones bigger. */
+    private fun slamStamp() {
+        if (stamped) return
+        stamped = true
+        val n = starCount()
+        for (i in 0 until 5) {
+            val v = stars.getChildAt(i)
+            later(90L * i) {
+                v.alpha = 1f; v.scaleX = 2.4f; v.scaleY = 2.4f
+                v.move().scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(Anim.spring).start()
+                if (i < n) { SoundFx.play("pop", rate = 1f + i * 0.15f); Haptics.click() }
+            }
+        }
+        later(620) { if (n == 5) anims.add(Anim.heartbeat(stars, 1.04f, 900)) }
+        SoundFx.play(if (isNewBest) "success" else "perfect", rate = if (isNewBest) 1f else 0.9f); Haptics.heavy()
+    }
+
+    /** First tap: everything lands at its final value right away. */
+    private fun finishCount() {
+        counting = false
+        scoreAnim?.cancel(); coinAnim?.cancel()
+        scoreText.text = score.toString()
+        coinText.text = "+$coins"
+        slamStamp()
+        SoundFx.play("tap"); Haptics.tick()
+    }
+
+    private fun next() {
+        Stage.focusFraction = Float.NaN; Stage.focusSpan = 0f
+        if (boxes > 0) showBoxes() else leave(onMenu)
+    }
+
+    // ------------------------------------------------------------- 2. boxes
+
+    private var boxesLeft = boxes
+    private var boxBusy = false
+    private var boxRewardReady = false
+    private var skipBoxAnimation = false
+    private var boxReadyTask: Runnable? = null
+    private var rewardCard: LinearLayout? = null
+    private var rewardBig: TextView? = null
+    private var rewardSub: TextView? = null
+    private var boxHint: TextView? = null
+    private var boxRack: LinearLayout? = null
+    private var boxHost: FrameLayout? = null
+    private var rewardSizeSp = 36f
+    private var rewardLabel: (Float) -> CharSequence = { "" }
+
+    /** Fit the actual glyphs and icon together, including Android's non-linear font scaling. */
+    private fun fitBoxText(view: TextView, width: Int, sizeSp: Float, label: (Float) -> CharSequence = { view.text }) {
+        val available = (width - view.compoundPaddingLeft - view.compoundPaddingRight - dp(3f)).coerceAtLeast(1)
+        val paint = TextPaint(view.paint)
+        val nominal = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sizeSp, view.resources.displayMetrics)
+        fun fits(px: Float): Boolean {
+            paint.textSize = px
+            return Layout.getDesiredWidth(label(px), paint) <= available
+        }
+        var low = 1f
+        var high = nominal
+        if (fits(nominal)) low = nominal else repeat(16) {
+            val candidate = (low + high) / 2f
+            if (fits(candidate)) low = candidate else high = candidate
+        }
+        val resized = kotlin.math.abs(view.textSize - low) > .01f
+        if (resized) view.setTextSize(TypedValue.COMPLEX_UNIT_PX, low)
+        val text = label(low)
+        if (resized || view.text.toString() != text.toString()) view.text = text
+    }
+
+    private fun rewardWithIcon(amount: String, px: Float, icon: Drawable): CharSequence {
+        val size = (px * 1.15f).toInt().coerceAtLeast(1)
+        icon.setBounds(0, 0, size, size)
+        return SpannableStringBuilder("\u2009 \u2009").apply {
+            setSpan(CenteredImageSpan(icon), 1, 2, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            append(amount)
+        }
+    }
+
+    private fun showBoxes() {
+        stopEffects()
+        adaptLayout = null
+        resultsCard = null
+        val host = FrameLayout(activity).apply {
+            isClickable = true
+            clipChildren = false; clipToPadding = false
+            setOnClickListener { tapBox() }
+        }
+        boxHost = host
+        lateinit var heading: TextView
+        val top = object : LinearLayout(activity) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                fitBoxText(heading, MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight, 28f)
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            }
+        }.apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(20f), 0, dp(20f), 0)
+            clipChildren = false; clipToPadding = false
+            heading = kit.stageText(kit.ctx.resources.getQuantityString(R.plurals.mystery_boxes, boxes), 28f, Theme.LAVENDER, stroke = 4f).apply {
+                letterSpacing = kit.tracking(0.06f); setSingleLine(); setHorizontallyScrolling(false)
+            }
+            addView(heading, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            boxRack = LinearLayout(activity).apply { // one icon per box; opened ones go quiet
+                orientation = LinearLayout.HORIZONTAL
+                clipChildren = false; clipToPadding = false
+                for (i in 0 until boxes) addView(ImageView(activity).apply { setImageDrawable(BoxIcon()) }, LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { marginStart = dp(3f); marginEnd = dp(3f) })
+            }
+            addView(android.widget.HorizontalScrollView(activity).apply {
+                isHorizontalScrollBarEnabled = false
+                addView(boxRack)
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4f) })
+        }
+        host.addView(top, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.TOP; topMargin = dp(24f) })
+        val bottom = object : LinearLayout(activity) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val contentWidth = MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight
+                boxHint?.let { fitBoxText(it, contentWidth, 14f) }
+                rewardCard?.layoutParams?.width = minOf(contentWidth, dp(360f))
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+            }
+        }.apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            // Room for the spring and reward heartbeat without clipping the card's corners.
+            setPadding(dp(20f), 0, dp(20f), 0)
+            clipChildren = false; clipToPadding = false
+            rewardCard = object : LinearLayout(activity) {
+                override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                    val contentWidth = MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight
+                    rewardSub?.let { fitBoxText(it, contentWidth, 12f) }
+                    rewardBig?.let { fitBoxText(it, contentWidth, rewardSizeSp, rewardLabel) }
+                    super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+                }
+            }.apply {
+                tag = "gift_reward_card"
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(dp(18f), dp(14f), dp(18f), dp(14f) + kit.CARD_LIP)
+                background = kit.cardDrawable(Theme.CARD, null, 26f)
+                alpha = 0f
+                rewardSub = kit.text("", 12f, Theme.MUTED, 700).apply {
+                    tag = "gift_reward_category"; letterSpacing = kit.tracking(0.1f); setSingleLine(); setHorizontallyScrolling(false)
+                }
+                rewardBig = kit.text("", 36f, Theme.INK, 700).apply {
+                    tag = "gift_reward_value"; setSingleLine(); setHorizontallyScrolling(false)
+                }
+                addView(rewardSub, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+                addView(rewardBig, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            }
+            addView(rewardCard, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            boxHint = tapHint(kit.ctx.getString(R.string.text_tap_to_open)).apply {
+                tag = "gift_footer_hint"; letterSpacing = kit.tracking(.08f); setSingleLine(); setHorizontallyScrolling(false)
+            }
+            // A reserved footer keeps the reward in place as the next-action wording changes.
+            addView(boxHint, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(48f)).apply { topMargin = dp(12f) })
+        }
+        host.addView(bottom, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.BOTTOM; bottomMargin = dp(16f) })
+        val originalTopParams = top.layoutParams
+        val rewardParams = rewardCard!!.layoutParams
+        val hintParams = boxHint!!.layoutParams
+        val compactColumn = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val compactRewards = LinearLayout(activity).apply {
+            // Low in the pane, like the full layout: the opened reward stays visible on the stage above it.
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
+        }
+        var compactBefore = false
+        adaptLayout = { compact ->
+            if (compactBefore != compact) {
+                compactBefore = compact
+                listOf(top, rewardCard!!, boxHint!!).forEach { (it.parent as? android.view.ViewGroup)?.removeView(it) }
+                if (compact) {
+                    host.removeView(bottom)
+                    compactColumn.addView(top, LinearLayout.LayoutParams(-1, -2))
+                    compactRewards.addView(rewardCard, LinearLayout.LayoutParams(-1, -2))
+                    compactColumn.addView(TapScrollView(activity) { tapBox() }.apply { isFillViewport = true; addView(compactRewards) }, LinearLayout.LayoutParams(-1, 0, 1f))
+                    hintPulse?.pause()
+                    Anim.reset(boxHint!!)
+                    boxHint!!.apply {
+                        setSingleLine(false); maxLines = 2
+                        setAutoSizeTextTypeUniformWithConfiguration(12, 14, 1, TypedValue.COMPLEX_UNIT_SP)
+                    }
+                    compactColumn.addView(boxHint, LinearLayout.LayoutParams(-1, dp(52f)).apply { marginStart = dp(12f); marginEnd = dp(12f); bottomMargin = dp(4f) })
+                    host.addView(compactColumn, LayoutParams(-1, -1))
+                    rewardCard!!.visibility = if (boxRewardReady) VISIBLE else GONE
+                } else {
+                    host.removeView(compactColumn)
+                    compactColumn.removeAllViews()
+                    (compactRewards.parent as? android.view.ViewGroup)?.removeView(compactRewards)
+                    host.addView(top, originalTopParams)
+                    bottom.addView(rewardCard, rewardParams); bottom.addView(boxHint, hintParams)
+                    host.addView(bottom, LayoutParams(-1, -2).apply { gravity = Gravity.BOTTOM; bottomMargin = dp(16f) })
+                    hintPulse?.resume()
+                    boxHint!!.background = null; boxHint!!.setTextColor(Theme.alpha(Theme.WHITE, 220))
+                    boxHint!!.setAutoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_NONE)
+                    boxHint!!.setSingleLine(); boxHint!!.setHorizontallyScrolling(false)
+                    rewardCard!!.visibility = VISIBLE
+                }
+            }
+        }
+        Stage.openRequests.set(0)
+        Stage.skipBoxRequests.set(0)
+        Stage.mode = Stage.BOX
+        swap(host)
+        Anim.popIn(top, 120, 0.6f)
+    }
+
+    /** A tap opens the next box; once the last one is open, a tap moves on. */
+    private fun tapBox() {
+        if (boxBusy) {
+            skipBoxAnimation = true
+            Stage.skipBoxRequests.incrementAndGet()
+            if (boxRewardReady) finishBoxAnimation()
+            return
+        }
+        if (boxesLeft <= 0) { leave(onMenu); return }
+        boxBusy = true
+        boxRewardReady = false; skipBoxAnimation = false
+        rewardBeat?.cancel(); rewardBeat = null
+        boxesLeft--
+        boxHint?.text = kit.ctx.getString(R.string.text_tap_to_skip)
+        boxHint?.visibility = VISIBLE
+        rewardCard?.move()?.alpha(0f)?.scaleX(0.7f)?.scaleY(0.7f)?.setDuration(150)?.start()
+        Stage.openRequests.incrementAndGet() // the game owns reward delivery in both layouts
+        if (compactLayout) rewardCard?.visibility = GONE // it sits over the box on short panes; back when the box opens
+    }
+
+    /** The 3D stage just opened a box: pop the reward card in. */
+    fun onBoxOpened(kind: Int, amount: Int, cat: Int, id: Int) {
+        if (leaving || boxRewardReady) return
+        boxRewardReady = true
+        rewardCard?.visibility = VISIBLE
+        val big = rewardBig ?: return
+        val sub = rewardSub ?: return
+        big.setTextColor(Theme.INK)
+        rewardSizeSp = 36f
+        val rare: Boolean
+        when (kind) {
+            Progress.BoxReward.SKIN -> {
+                rare = true
+                sub.text = kit.ctx.getString(R.string.text_new_cosmetic, kit.ctx.gameText(Wardrobe.label(cat)))
+                sub.setTextColor(Theme.darken(Theme.PINK, .35f))
+                val name = kit.ctx.gameText(Wardrobe.name(cat, id)).uppercase(kit.ctx.resources.configuration.locales[0])
+                rewardLabel = { name }
+            }
+            Progress.BoxReward.SHARDS -> {
+                val k = cube.run.data.Shards.get(id)
+                val col = Theme.darken(Theme.hsv(k.hue, 0.7f, 0.9f), .45f)
+                rare = amount >= 20
+                sub.text = kit.ctx.gameText(k.name).uppercase(kit.ctx.resources.configuration.locales[0])
+                sub.setTextColor(col)
+                rewardLabel = { px -> rewardWithIcon("+$amount", px, ShardIcon(Theme.hsv(k.hue, 0.75f, 1f))) }
+            }
+            Progress.BoxReward.BUBBLE -> {
+                rare = false
+                sub.text = kit.ctx.getString(R.string.text_bubble_shield_upper)
+                sub.setTextColor(Theme.darken(Theme.CYAN, .5f))
+                rewardLabel = { "+$amount" }
+            }
+            else -> {
+                rare = amount >= 100
+                sub.text = ""
+                rewardSizeSp = if (rare) 44f else 36f
+                rewardLabel = { px -> rewardWithIcon("+$amount", px, CoinIcon()) }
+            }
+        }
+        sub.visibility = if (sub.text.isEmpty()) GONE else VISIBLE
+        // Assign now for accessibility; measurement then fits the same label and icon as one unit.
+        big.text = rewardLabel(big.textSize)
+        rewardCard?.requestLayout()
+        rewardCard?.let { c ->
+            rewardBeat?.cancel(); rewardBeat = null
+            Anim.popIn(c, 0, 0.3f, 460) {
+                if (rare) rewardBeat = Anim.heartbeat(c, 1.04f, 800)
+            }
+        }
+        if (rare && !compactLayout) boxHost?.addView(CelebrationView(activity, focusY = 0.55f, rays = false, count = 140, burst = true, fallOut = true), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        boxRack?.let { r -> // the box just opened dims
+            val opened = boxes - boxesLeft - 1
+            r.getChildAt(opened)?.move()?.alpha(0.3f)?.scaleX(0.8f)?.scaleY(0.8f)?.setDuration(300)?.start()
+        }
+        if (skipBoxAnimation) finishBoxAnimation()
+        else {
+            boxReadyTask = Runnable { finishBoxAnimation() }.also { postDelayed(it, 900) }
+        }
+    }
+
+    private fun finishBoxAnimation() {
+        boxReadyTask?.let { removeCallbacks(it) }; boxReadyTask = null
+        rewardBeat?.cancel(); rewardBeat = null
+        rewardCard?.let { Anim.reset(it) }
+        boxBusy = false
+        boxHint?.text = if (boxesLeft > 0) kit.ctx.getString(R.string.text_tap_for_the_next_box)
+        else if (boxesOnly) kit.ctx.getString(R.string.text_tap_to_return)
+        else kit.ctx.getString(R.string.text_tap_for_the_menu)
+        boxHint?.visibility = VISIBLE
+    }
+
+    // Start only after all animation handles and result/box state are initialized.
+    init {
+        isClickable = true
+        clipChildren = false; clipToPadding = false
+        setPadding(0, dp(36f), 0, dp(24f))
+        setOnApplyWindowInsetsListener { _, insets ->
+            safeInsets = insetsOf(insets)
+            requestLayout()
+            insets
+        }
+        if (boxesOnly) showBoxes() else showResults()
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val (l, t, r, b) = uncovered.of(safeInsets)
+        compactLayout = CompactLayout.uses(this, MeasureSpec.getSize(heightMeasureSpec), t, b)
+        val top = maxOf(dp(if (compactLayout) 8f else 36f), t + dp(6f))
+        val bottom = maxOf(dp(if (compactLayout) 8f else 24f), b + dp(8f))
+        if (paddingTop != top || paddingBottom != bottom || paddingLeft != l || paddingRight != r) setPadding(l, top, r, bottom)
+        adaptLayout?.invoke(compactLayout)
+        // Narrow panes (and large display sizes) must not push the results card past the edges.
+        resultsCard?.layoutParams?.let { params ->
+            val width = minOf(dp(300f), MeasureSpec.getSize(widthMeasureSpec) - l - r - dp(24f))
+            if (params.width != width) params.width = width
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    override fun onDetachedFromWindow() {
+        stopEffects()
+        super.onDetachedFromWindow()
+    }
+}
