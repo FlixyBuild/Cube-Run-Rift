@@ -1,0 +1,38 @@
+# Gradle / build
+.gradle/
+build/
+captures/
+.cxx/
+.externalNativeBuild/
+
+# Generated libGDX native libraries (re-extracted by copyAndroidNatives)
+app/libs/
+
+# Local config
+local.properties
+keystore.properties
+
+# IDE
+.idea/
+*.iml
+.kotlin/
+
+# Artifacts
+*.apk
+*.aab
+*.keystore
+*.jks
+output/fdroid-banners/
+
+# Local validation scratch files
+.build-tmp/
+.local-tmp/
+__pycache__/
+
+# Test evidence, review pages and drop pages stay local
+muxu/
+docs/*-reference/
+docs/evidence/
+docs/review/
+docs/*-review/
+tools/*-review/
