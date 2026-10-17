@@ -1,0 +1,254 @@
+package cube.run.game.stage
+
+import com.badlogic.gdx.graphics.Color
+import com.badlogic.gdx.graphics.PerspectiveCamera
+import com.badlogic.gdx.graphics.glutils.ShapeRenderer
+import com.badlogic.gdx.math.Vector3
+import cube.run.core.Gdx3DGame
+import cube.run.core.Haptics
+import cube.run.core.SoundFx
+import cube.run.core.Stage
+import cube.run.core.hsvInto
+import cube.run.data.Wardrobe
+import cube.run.game.Bubble
+import cube.run.game.Player
+import cube.run.game.RunCamera
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
+
+/**
+ * The stage the wardrobe, the shop and the results use: the cube floating
+ * in a deep, world-tinted sky with a ring of sparkles, and — on the results
+ * and in the shop — a sunburst spinning behind it, centred on it. Nothing
+ * snaps: the wardrobe's categories morph into each other (the bubble
+ * inflates around the cube, the cube glides out onto its trail loop and
+ * back), every item switch is a spin-flip with a pop, and purchases play
+ * their [Demos] on the cube.
+ */
+class Showcase(private val game: Gdx3DGame, private val player: Player, private val bubble: Bubble) {
+
+    var active = false
+        private set
+    var shop = false
+        private set
+    private var shopMix = 0f
+    val menuVisibility: Float get() = 1f - shopMix
+    private var shopSpin = 0f
+    private var rayAngle = 0f
+    private var playYaw = 0f
+    private var playVelocity = 0f
+    private var playLift = 0f
+    private var playLiftVelocity = 0f
+    private val menuCameraPosition = Vector3()
+    private val menuCameraDirection = Vector3()
+    private val menuCameraUp = Vector3()
+    private var menuFov = 60f
+
+    private val skyTopSave = Color()
+    private val skyBottomSave = Color()
+    /** The stage's own sky (the game blends back out of it after [exit]). */
+    val stageTop = Color()
+    val stageBottom = Color()
+    private val gold = Color()
+    private val spark = Color()
+    private val rayCol = Color()
+    private val tmp = Vector3()
+    private val tmpCol = Color()
+    private val demos = Demos(game, player, bubble)
+    private val void = VoidShow(game, player)
+    private var enterT = 0f
+    private var trailMix = 0f      // eased 0..1: the cube is out on its trail loop
+    private var bubbleMix = 0f     // eased 0..1: the wardrobe bubble is inflated
+    private var kickV = 0f         // spin-flip velocity on an item switch (deg/s)
+    private var kickA = 0f         // accumulated extra yaw
+    private var pop = 0f           // 1 → 0: the switch pop (scale + a burst of rays)
+    private var wide = 0f          // eased camera pull-back for the loop
+
+    private fun cat(): Int = if (Stage.mode == Stage.SKINS) Stage.previewCat else Wardrobe.CUBE
+
+    /** [tint] is the world's hue: the backdrop stays a deep version of where you were. */
+    fun enter(bgTop: Color, bgBottom: Color, tint: Float) {
+        active = true
+        shop = Stage.mode == Stage.SHOP
+        if (shop) {
+            menuCameraPosition.set(game.cam.position)
+            menuCameraDirection.set(game.cam.direction)
+            menuCameraUp.set(game.cam.up)
+            menuFov = game.cam.fieldOfView
+            player.saveMenuPose()
+        }
+        enterT = 0f
+        shopSpin = 0f
+        rayAngle = game.time * 14f
+        playYaw = 0f; playVelocity = 0f; playLift = 0f; playLiftVelocity = 0f
+        trailMix = 0f; bubbleMix = 0f; kickV = 0f; kickA = 0f; pop = 0f; wide = 0f
+        demos.reset()
+        skyTopSave.set(bgTop); skyBottomSave.set(bgBottom)
+        hsvInto(stageTop, tint - 20f, 0.65f, 0.42f)
+        hsvInto(stageBottom, tint + 20f, 0.75f, 0.10f)
+        hsvInto(spark, tint + 180f, 0.5f, 1f)
+        hsvInto(gold, 46f, 0.8f, 1f)
+    }
+
+    /** Ease the sky from where the run was into the stage's deep tint. */
+    fun tintSky(bgTop: Color, bgBottom: Color) {
+        val k = if (shop) shopMix else min(1f, enterT * 2.8f)
+        bgTop.set(skyTopSave).lerp(stageTop, k)
+        bgBottom.set(skyBottomSave).lerp(stageBottom, k)
+        void.tintSky(bgTop, bgBottom)
+    }
+
+    fun exit(bgTop: Color, bgBottom: Color) {
+        active = false
+        void.cancel()
+        if (shop) player.restoreMenuPose(game.time)
+        bgTop.set(skyTopSave); bgBottom.set(skyBottomSave)
+    }
+
+    fun update(dt: Float, time: Float, baseHue: Float) {
+        if (shop) {
+            // Integrate a positive velocity analytically: a brisk turn easing to 45 degrees/second.
+            val before = kotlin.math.exp(-enterT / 0.14f)
+            val after = kotlin.math.exp(-(enterT + dt) / 0.14f)
+            shopSpin += 45f * dt + 600f * 0.14f * (before - after)
+        }
+        enterT += dt
+        shopMix = Stage.shopProgress
+        if (shop) {
+            val gesture = Stage.shopPlayRequests.getAndSet(0)
+            if (gesture != 0 && shopMix == 1f && !demos.running) {
+                when (gesture) {
+                    Stage.SHOP_LEFT -> playVelocity = -1000f
+                    Stage.SHOP_RIGHT -> playVelocity = 1000f
+                    else -> {
+                        playLiftVelocity = when (gesture) { Stage.SHOP_UP -> 3.8f; Stage.SHOP_DOWN -> 1.8f; else -> 2.8f }
+                        playVelocity = 240f
+                    }
+                }
+                SoundFx.play("pop", rate = if (gesture == Stage.SHOP_TAP) 1.4f else 1.7f, vol = 0.35f)
+                Haptics.tick()
+                game.burst3d(tmp.set(player.px, player.py, 0f), player.trailCol(), n = 8, speed = 2.6f, size = 0.07f, life = 0.4f)
+            }
+            val drag = if (shopMix < 1f) 14f else 4.5f
+            val keep = kotlin.math.exp(-drag * dt)
+            playYaw += playVelocity * (1f - keep) / drag
+            playVelocity *= keep
+            playLift = max(0f, playLift + playLiftVelocity * dt - 7f * dt * dt)
+            playLiftVelocity = if (playLift > 0f) playLiftVelocity - 14f * dt else 0f
+        }
+        val c = cat()
+        trailMix += ((if (c == Wardrobe.TRAIL) 1f else 0f) - trailMix) * min(1f, dt * 3.2f)
+        bubbleMix += ((if (c == Wardrobe.BUBBLE) 1f else 0f) - bubbleMix) * min(1f, dt * 4.5f)
+        wide += ((if (c == Wardrobe.TRAIL) 1f else 0f) - wide) * min(1f, dt * 3f)
+        if (Stage.previewKicks.getAndSet(0) > 0) { // a new item: spin-flip, pop, shards in its colour
+            kickV = 1100f; pop = 1f
+            SoundFx.play("pop", rate = 1.25f, vol = 0.8f); Haptics.click()
+            game.burst3d(tmp.set(player.px, player.py, 0.3f), player.trailCol(), n = 18, speed = 4.5f, size = 0.11f, life = 0.55f)
+        }
+        if (Stage.previewBuys.getAndSet(0) > 0) { // bought: a double flip, gold rays, a shower of gold and its own colour
+            kickV = 2000f; pop = 1.6f
+            SoundFx.play("success", rate = 1.2f); SoundFx.play("boom", rate = 1.8f, vol = 0.3f); Haptics.success()
+            game.flash(gold, 0.25f)
+            game.burst3d(tmp.set(player.px, player.py, 0.3f), gold, n = 30, speed = 7f, size = 0.13f, life = 0.9f)
+            game.burst3d(tmp, player.trailCol(), n = 20, speed = 5f, size = 0.12f, life = 0.7f)
+            game.burst3d(tmp, Color.WHITE, n = 12, speed = 10f, size = 0.08f, life = 0.45f)
+        }
+        val kickStep = min(dt, kickV / 2400f)
+        kickA += kickV * kickStep - 1200f * kickStep * kickStep
+        kickV = max(0f, kickV - 2400f * dt)
+        pop = max(0f, pop - dt * 2.6f)
+        // where the cube is: the centre, or out on the loop (eased between)
+        val lx = 0.9f * sin(time * 1.4f)
+        val ly = 1.0f + 0.35f * sin(time * 2.8f)
+        val x = lx * trailMix
+        val y = 1.0f + (ly - 1.0f) * trailMix + demos.lift + playLift
+        val spin = 45f + 115f * trailMix
+        val scale = 1f + 0.22f * sin(min(1f, pop) * 3.14159f)
+        player.showcase(time, baseHue, x, y, if (shop) 0f else spin, extraYaw = if (shop) 0f else kickA, scale = scale)
+        if (shop) player.blendFromMenu(shopMix, shopSpin + kickA + playYaw, time)
+        if (trailMix > 0.08f) player.emitTrail(dt, time, x - 0.3f * cos(time * 1.4f), y, 0.3f, boost = 1.6f * trailMix, scale = 2.4f)
+        demos.update(dt, time, player.px, player.py)
+        if (shop && shopMix == 1f && cube.run.data.Progress.voidAvailable) void.prewarm()
+        // The void takes its offering on the shop stage (see VoidShow).
+        if (Stage.voidRequests.getAndSet(0) > 0 && shop && !void.active) {
+            demos.reset()
+            void.start(player.px, player.py)
+        }
+        void.update(dt)
+        // The shop's rays turn at their own pace; the void only whips them round as it sucks them in.
+        rayAngle += dt * (14f + (if (void.active) void.raySpin else 0f))
+        if (void.active) void.posePlayer(time, baseHue)
+    }
+
+    fun dispose() = void.dispose()
+
+    fun aim(rig: RunCamera) {
+        when (Stage.mode) {
+            Stage.RESULT -> rig.results(Stage.focusFraction.takeUnless { it.isNaN() }
+                ?: game.fractionForDp(36f + 120f))                               // the results column starts below this
+            Stage.SHOP -> rig.shop(game.fractionForDp(36f + 60f + 75f))         // the middle of the showroom strip
+            else -> {
+                // A short pane's gap is shallow: pull back for the bubble as the loop does for trails,
+                // and further when the gap is too shallow for the cube (a third of a phone).
+                val focus = Stage.focusFraction
+                val span = Stage.focusSpan
+                val fit = if (span > 0f) max(0f, (2.1f / span - 7f) / 2.8f) else 0f
+                if (focus.isNaN()) rig.wardrobe(wide) else rig.wardrobe(wide + 0.8f * bubbleMix + fit, focus)
+            }
+        }
+        if (shop) {
+            // Interpolate from the captured menu shot, never from last frame's already-blended camera.
+            game.cam.position.lerp(menuCameraPosition, 1f - shopMix)
+            game.cam.direction.lerp(menuCameraDirection, 1f - shopMix).nor()
+            game.cam.up.lerp(menuCameraUp, 1f - shopMix).nor()
+            game.cam.fieldOfView += (menuFov - game.cam.fieldOfView) * (1f - shopMix)
+            void.aimCamera(game.cam)
+        }
+    }
+
+    /** The ring of sparkles around the cube, plus whatever demo is running. */
+    fun render(time: Float) {
+        val t = if (shop) shopMix else min(1f, enterT * 1.5f)
+        for (i in 0 until 8) {
+            val a = time * 0.9f + i * 0.785f
+            val r = (2.1f + 0.25f * sin(time * 2f + i)) * t
+            val y = player.py + 0.5f * sin(time * 1.6f + i * 1.3f)
+            val s = (0.07f + 0.05f * (0.5f + 0.5f * sin(time * 5f + i * 2f))) * (if (shop) shopMix else 1f) *
+                (if (void.active) 1f - void.depth else 1f) // the void's stars take their place
+            game.worldBoxSpin(player.px + cos(a) * r, y, sin(a) * r, s, s, s, time * 120f + i * 45f, spark)
+        }
+        demos.render(time)
+        if (void.active) void.render(time)
+    }
+
+    /** The sunburst behind the cube: the results' hype pattern, a soft one in the shop, a flash on a wardrobe switch. */
+    fun renderShapes(shapes: ShapeRenderer, time: Float) {
+        val grow = min(1f, enterT * 1.4f)
+        val g = if (shop) shopMix else 1f - (1f - grow) * (1f - grow)
+        when (Stage.mode) {
+            Stage.RESULT -> { // one sunburst, centred on the cube as seen on screen
+                hsvInto(rayCol, Stage.resultHue, 0.5f, 0.9f)
+                game.sunburstBehind(shapes, player.px, player.py, 0f, 3f, 12f * g, 14, time * 18f, rayCol, (if (Stage.resultRecord) 0.5f else 0.36f) * g, 0.5f)
+            }
+            Stage.SHOP -> {
+                // While the void plays, the shop's rays are the first thing it swallows.
+                val kept = if (void.active) void.raysKept else 1f
+                hsvInto(rayCol, 46f, 0.45f, 0.9f)
+                if (kept > 0.01f) game.sunburstBehind(shapes, player.px, player.py, 0f, 3f, 10f * g * kept, 12, rayAngle, rayCol, 0.28f * g * kept, 0.45f)
+                if (void.active) void.renderShapes(shapes, time)
+            }
+            else -> if (pop > 0.01f) {
+                val p = min(1f, pop)
+                game.sunburst(shapes, player.px, player.py, -2.5f, 3f + 8f * (1f - p), 12, time * 60f, if (pop > 1f) gold else Color.WHITE, p * p * 0.55f, 0.4f)
+            }
+        }
+    }
+
+    fun renderBlended(cam: PerspectiveCamera, time: Float) {
+        if (bubbleMix > 0.01f) bubble.showcase(cam, time, player.px, player.py, inflate = bubbleMix)
+        demos.renderBlended(cam, time)
+        if (void.active) void.renderBlended(cam, time)
+    }
+}
