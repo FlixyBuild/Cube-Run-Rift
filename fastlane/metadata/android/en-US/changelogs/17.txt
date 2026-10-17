@@ -1,0 +1,5 @@
+Tropical Beach campaign world with a sandy boardwalk, ocean surf, animated palms and a distant flying plane.
+Winter snow now falls with staggered, repeatable motion.
+Deadpool, Spider-Man, Iron Sentinel and Frost Byte cube cosmetics join the wardrobe; six original starters remain free.
+Coin payouts rise modestly, and procedural SFX/music have a warmer, bassier mix.
+Hardened Space portal return state and added crash/memory diagnostics to investigate unexpected app closures.

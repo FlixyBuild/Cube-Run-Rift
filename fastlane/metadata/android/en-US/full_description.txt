@@ -1,0 +1,18 @@
+Cube Run: Riftbreak is an offline 3D endless runner starring a cube. Swipe, jump, roll and cross portals through five distinct campaign biomes—each with its own palette, scenery, hazards and objectives.
+
+Jungle Canopy lays green-coin trails through vines, plants and fallen logs. Neon City brings traffic beneath a bright skyline. Winter Peaks adds snow-covered routes, falling flakes, snowballs and ice hazards. In Outer Space, a translucent road passes beneath a moving tesseract as black-hole gravity tugs at the cube and loose collectibles. Tropical Beach trades night asphalt for a warm boardwalk, sandy shores, foamy surf and open blue water, with blocky palms, parasols, cabanas and a plane crossing the sky.
+
+The Space route includes a timed Rift Escape: reach the exit over 150 course units before the 14.5-second countdown expires, or get pulled into the singularity. Collect five coin families—red, blue, green, pink and mixed—with distinct values. Complete optional biome objectives for bonus coins and score. Base coin payouts are slightly higher without increasing collectible frequency.
+
+Choose from six free cube designs—Event Horizon, Jungle Sprout, Tesseract, Aurora, Solar Flare and Pink Rift—or unlock four detailed cosmetic skins: Deadpool, Spider-Man, Iron Sentinel and Frost Byte. Power-ups include a jetpack, timed skateboard, jump shoes, bubble shield, magnet and score multiplier.
+
+Features:
+
+* One-thumb swipe controls for lane changes, jumps, slides and ground-pounds.
+* Five campaign biomes with distinct visual themes and hazards.
+* A moving tesseract, animated black hole, live gravitational pull and timed escape.
+* Ten cube designs, with six free starters and four coin-unlockable cosmetics.
+* Original procedural sound effects and music, plus local progression.
+* No accounts, ads, tracking or network access. Play offline.
+
+Cube Run is built with libGDX and is free software licensed under the GNU General Public License v3.0.

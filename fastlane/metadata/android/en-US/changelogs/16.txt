@@ -1,0 +1,7 @@
+A new Riftbreak campaign replaces the previous game loop and cube catalog.
+Jungle Canopy harvest objective, green-coin routes and new Jungle hazards.
+Playable Space portal with a moving tesseract, coloured coins and an active black hole.
+Timed Rift Escape: reach the exit before the 14.5-second clock expires.
+Six selectable cube designs, skateboard pickup, visible board, grind effect and scoring/speed boost.
+New Jungle and Space obstacle silhouettes, plus persistent Easy, Medium and Hard run settings that tune pace, spacing and Space pattern tiers.
+Retains the Cube Run app identity, existing sound core and offline play.

@@ -1,0 +1,5 @@
+City/world-entry investigation tools now record Android process-exit reasons (including OS low-memory kills and native crashes) and can copy a report from Settings.
+Tropical Beach is placed first and marked NEW in the World Picker; every existing campaign map stays available.
+The loading intro now frames the foreground cube with all ten existing map themes behind it, including every campaign biome.
+Deadpool, Spider-Man, Iron Sentinel and Frost Byte cosmetics remain optional paid designs, with coin prices reduced to 100–450.
+A first jetpack now appears in the early pickup cycle; later jetpacks and mystery boxes keep their score pacing.

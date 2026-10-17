@@ -1,0 +1,1 @@
+Fixed the photo cube skins: each supplied portrait is now UV-mapped across all six cube faces instead of a front overlay, so the photo displays on the full cube with no blank white sides.
