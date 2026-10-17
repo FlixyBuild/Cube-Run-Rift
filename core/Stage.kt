@@ -1,0 +1,175 @@
+package cube.run.core
+
+import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * UI → GL channel for the HUD's showcase screens and the pause. The HUD asks
+ * the game to present a scene ([mode]): the run-over mystery-box stage ([BOX],
+ * with [openRequests] to open boxes), the wardrobe ([SKINS], with the
+ * preview fields to try items on) or the results stage ([RESULT]: the
+ * equipped cube posed high on a dark stage under the score). [paused]
+ * freezes the simulation. The game answers through `GameSession.boxOpened`.
+ * Plain volatile/atomic state — no callbacks cross threads.
+ */
+object Stage {
+    const val NONE = 0
+    const val BOX = 1
+    const val SKINS = 2
+    const val RESULT = 3
+    /** The shop: the equipped cube small at the top, reacting to what you buy. */
+    const val SHOP = 4
+    /** Persistent world picker (the live run remains at the menu beneath it). */
+    const val WORLD_PICKER = 5
+    const val SETTINGS = 6
+    const val RANDOM_WORLD_PREVIEW = -2
+
+    // purchase demos the shop asks the stage to play (see game.stage.Demos)
+    const val DEMO_BUBBLE = 1
+    const val DEMO_MAGNET = 2
+    const val DEMO_MULT = 3
+    const val DEMO_JET = 4
+    const val DEMO_SAFESTART = 5
+    const val DEMO_COINS = 6
+    const val DEMO_PORTAL = 7
+    const val DEMO_BOX = 8
+    const val DEMO_REVIVE = 9
+
+    /** Any real touch cancels the dev attract run before another bot action can land. */
+    val interactions = AtomicInteger(0)
+    @Volatile var pointerDown = false
+    @Volatile var homeScreen = true
+    @Volatile internal var botOwner: Any? = null
+    val botPlaying get() = botOwner != null
+    fun userInteraction(down: Boolean = false) {
+        pointerDown = down
+        interactions.incrementAndGet()
+        botOwner = null
+    }
+
+    @Volatile var mode = NONE
+    /** Shop navigation's single UI-driven clock: 0 = menu, 1 = showroom. */
+    @Volatile var shopProgress = 0f
+    const val SHOP_TAP = 1
+    const val SHOP_LEFT = 2
+    const val SHOP_RIGHT = 3
+    const val SHOP_UP = 4
+    const val SHOP_DOWN = 5
+    /** A hidden showroom gesture; these never purchase, equip, or award anything. */
+    val shopPlayRequests = AtomicInteger(0)
+
+    /** The pause menu is up: the game renders its last frame and integrates nothing. */
+    @Volatile var paused = false
+
+    /** Seconds into the jackpot show (see [JackpotBeats]), or -1 when none is playing. GL-owned. */
+    @Volatile var jackpotClock = -1f
+    /** Coins the playing jackpot pays (several simultaneous wins add up). GL-owned. */
+    @Volatile var jackpotAmount = 0
+
+    /** The shop asked the void to take its offering (see [VoidBeats]). */
+    val voidRequests = AtomicInteger(0)
+    /** A tap after the blast: finish the line, or let the held show return to the shop. */
+    val voidSkips = AtomicInteger(0)
+    /** Seconds into the void show, or -1 when none is playing. GL-owned. */
+    @Volatile var voidClock = -1f
+    /** Seconds the void has been speaking; it keeps running while the show holds. GL-owned. */
+    @Volatile var voidSpeech = 0f
+    /** How long the current line takes to type ([VoidBeats.speakSeconds]); set before a request. */
+    @Volatile var voidSpeechSeconds = 0f
+    /** How much of the offering has gone down the hole (0..1): the bank drains coin by coin. GL-owned. */
+    @Volatile var voidFed = 0f
+    /** Where on screen (0..1 from the top-left) the coins leave from: the bank pill. */
+    @Volatile var voidCoinX = 0.8f
+    @Volatile var voidCoinY = 0.07f
+
+    /** Hound encounter cue for the HUD: 0 hidden, 1 approaching, 2 lunge, 3 escaped/repelled, 4 impact. */
+    @Volatile var houndAlert = 0
+
+    /** Live biome mission / timed escape banner, sampled by the Android HUD. */
+    @Volatile var runObjective: String = ""
+    @Volatile var runObjectiveProgress: Float = 0f
+    /** 0 normal, 1 danger, 2 success. */
+    @Volatile var runObjectiveTone: Int = 0
+
+    /** Dev tool: the pause card asked for the run to end now (crash → results). */
+    @Volatile var endRun = false
+
+    /** Boxes the player has asked to open that the game hasn't started opening yet. */
+    val openRequests = AtomicInteger(0)
+    val skipBoxRequests = AtomicInteger(0)
+    /** GL-owned acknowledgement: the gift camera is still being presented. */
+    @Volatile var giftShowing = false
+    /** Shop rewards are already banked; the gift stage only presents them. */
+    val purchasedBoxRewards = java.util.concurrent.ConcurrentLinkedQueue<cube.run.data.Progress.BoxReward>()
+
+    /** Taps on the HUD's boost button the game hasn't applied yet. */
+    val boostRequests = AtomicInteger(0)
+
+    /** A purchase demo the stage should play next (a DEMO_* code, 0 = none). */
+    val demoRequests = AtomicInteger(0)
+
+    /** Wardrobe: how many item switches the stage hasn't celebrated yet (a spin-flip each). */
+    val previewKicks = AtomicInteger(0)
+
+    /** Wardrobe: purchases the stage hasn't celebrated yet (a big flip, gold rays, shards). */
+    val previewBuys = AtomicInteger(0)
+
+    /** The results stage: the sunburst's hue behind the cube, and whether this run set a record. */
+    @Volatile var resultHue = 46f
+    @Volatile var resultRecord = false
+
+    /**
+     * Short (split-screen) panes: where the page left room for the showpiece, as a
+     * fraction of the screen height from the top. NaN keeps each mode's own framing.
+     */
+    @Volatile var focusFraction = Float.NaN
+    /** With [focusFraction]: how much of the screen height that room spans (0 = unknown). */
+    @Volatile var focusSpan = 0f
+
+    /** Wardrobe: which category is being browsed (data.Wardrobe.CUBE / BUBBLE / TRAIL). */
+    @Volatile var previewCat = 0
+    /** Cube skin id to show on the wardrobe stage (-1 = the equipped one). */
+    @Volatile var previewSkin = -1
+    /** Bubble skin id to show (-1 = the equipped one). */
+    @Volatile var previewBubble = -1
+    /** Trail id to show (-1 = the equipped one). */
+    @Volatile var previewTrail = -1
+    /** Selected starting world while WORLD_PICKER is open (-1 = no preview, RANDOM_WORLD_PREVIEW = reroll). */
+    @Volatile var worldPreview = -1
+
+    fun reset() {
+        homeScreen = true; botOwner = null; pointerDown = false
+        mode = NONE
+        focusFraction = Float.NaN
+        focusSpan = 0f
+        shopProgress = 0f
+        shopPlayRequests.set(0)
+        paused = false
+        houndAlert = 0
+        runObjective = ""; runObjectiveProgress = 0f; runObjectiveTone = 0
+        endRun = false
+        jackpotClock = -1f
+        jackpotAmount = 0
+        voidRequests.set(0)
+        voidSkips.set(0)
+        voidClock = -1f
+        voidSpeech = 0f
+        openRequests.set(0)
+        skipBoxRequests.set(0)
+        giftShowing = false
+        purchasedBoxRewards.clear()
+        boostRequests.set(0)
+        demoRequests.set(0)
+        previewKicks.set(0)
+        previewBuys.set(0)
+        previewCat = 0
+        worldPreview = -1
+        clearPreview()
+    }
+
+    /** Leave the wardrobe: clear every try-on. */
+    fun clearPreview() {
+        previewSkin = -1
+        previewBubble = -1
+        previewTrail = -1
+    }
+}
